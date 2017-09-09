@@ -17,12 +17,24 @@ library
   exposed-modules:     Pushy.Web
                      , Pushy.Authentication
                      , Pushy.Configuration
+                     , Pushy.Database
+                     , Pushy.Database.Entities
+                     , Pushy.Database.Types
+                     , Pushy.Types
+                     , Pushy.Utilities
   build-depends:       base >= 4.7 && < 5
                      , Spock
+                     , bytestring
                      , configurator
-                     , HDBC
-                     , HDBC-mysql
+                     , mtl
+                     , monad-logger
+                     , persistent-mysql-haskell
+                     , persistent
+                     , persistent-template
                      , text
+                     , hslogger
+                     , resource-pool
+                     , time
   default-language:    Haskell2010
 
 executable pushy-api-exe
