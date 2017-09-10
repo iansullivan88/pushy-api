@@ -23,7 +23,7 @@ runPushyApi :: IO ()
 runPushyApi = do c <- C.readConfiguration
                  C.initialiseLogging
                  pool <- runNoLoggingT $ createMySQLPool (dbInfo c) 100 
-                 withResource pool (\backend -> do
+                 withResource pool (\backend -> withTransaction backend $ do
                     infoM logger "Initialisingdatabase"
                     initialiseDatabase backend
                     infoM logger ("Initialising authentication " ++ show (authMode c))

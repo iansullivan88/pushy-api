@@ -13,4 +13,4 @@ initialiseAuthentication :: SqlBackend -> AuthenticationMode -> IO ()
 initialiseAuthentication b (NoAuthentication ts) = traverse_ (createDefaultTeam b) ts
 
 createDefaultTeam :: SqlBackend -> DefaultTeam -> IO ()
-createDefaultTeam b (DefaultTeam n dn) = void $ query b $ InsertTeam n dn
+createDefaultTeam b (DefaultTeam n dn) = void $ query b $ UpsertTeam n dn

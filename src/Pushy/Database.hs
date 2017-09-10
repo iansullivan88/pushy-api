@@ -2,7 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Pushy.Database( Pushy.Database.query
-                     , initialiseDatabase) where
+                     , initialiseDatabase
+                     , withTransaction) where
 
 import Pushy.Database.Types
 import Pushy.Database.Entities
@@ -18,6 +19,9 @@ import System.Log.Logger
 initialiseDatabase :: SqlBackend -> IO ()
 initialiseDatabase = runReaderT $ runMigration migrateAll
 
+withTransaction :: SqlBackend -> IO a -> IO a
+withTransaction b a = runReaderT (transactionUndo *> liftIO a <* transactionSave) b
+
 query :: SqlBackend -> Request a -> IO a
 query b r = do debugM loggerName $ "Executing request" ++ show r
                start  <- getCurrentTime
@@ -30,6 +34,7 @@ query b r = do debugM loggerName $ "Executing request" ++ show r
 executeRequest :: Request a -> ReaderT SqlBackend IO a
 executeRequest (GetTeamById tId) = undefined
 executeRequest (InsertTeam name displayName) = insert (Team name displayName) >>= unsafeGet 
+executeRequest (UpsertTeam name displayName) = upsert (Team name displayName) [TeamDisplayName =. displayName] 
 
 
 unsafeGet :: (MonadIO m, PersistRecordBackend record backend, PersistStoreRead backend) => Key record -> ReaderT backend m record
