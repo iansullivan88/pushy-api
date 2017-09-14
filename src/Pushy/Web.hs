@@ -6,6 +6,7 @@ import Pushy.Authentication
 import Pushy.Database
 import qualified Pushy.Configuration as C
 import Pushy.Types
+import Pushy.Utilities
 
 import Control.Applicative
 import Control.Exception
@@ -21,16 +22,17 @@ import Web.Spock.Config
 
 runPushyApi :: IO ()
 runPushyApi = do c <- C.readConfiguration
-                 C.initialiseLogging
+                 C.initialiseLogging 
                  pool <- runNoLoggingT $ createMySQLPool (dbInfo c) 100 
                  withResource pool (\backend -> withTransaction backend $ do
                     infoM logger "Initialisingdatabase"
-                    initialiseDatabase backend
-                    infoM logger ("Initialising authentication " ++ show (authMode c))
-                    initialiseAuthentication backend (authMode c))
+                    let defaultTeams = map (\dn -> DefaultTeam (toShortUrlPart dn) dn) (defaultTeamNames c)
+                    initialiseDatabase backend defaultTeams)
                  sc <- defaultSpockCfg () (PCPool pool) ()
                  let sc' = sc { spc_csrfProtection = False }
                  let serverPort = port c
+                 let state = ApplicationState (cAuthMode c)
+                 sc <- defaultSpockCfg () (PCPool pool) state
                  infoM logger $ "Starting server on port " ++ show serverPort
                  runSpockNoBanner serverPort  (spock sc' routes)
 
@@ -39,6 +41,5 @@ routes = do get root $ text "Pushy!"
 
 logger :: String
 logger = "Pushy.Web"
-
 
 

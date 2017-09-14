@@ -30,16 +30,13 @@ readConfiguration = do c      <- load [Required "pushy-api.config"]
                        dbPassword <- require c "databasePassword"
                        let dbInfo'  = setMySQLConnectInfoPort dbPort $ mkMySQLConnectInfo dbHost dbUser dbPassword "pushy"
                        PushyConfig <$> lookupDefault 80 c "port"
-                                   <*> (parseAuth c =<< require c "authenticationMode")
+                                   <*> (parseAuth =<< require c "authenticationMode")
                                    <*> pure dbInfo'
+                                   <*> lookupDefault [] c "defaultTeams"
 
-parseAuth :: Config -> String -> IO AuthenticationMode
-parseAuth c "none" = do ts <- require c "defaultTeams"
-                        let displayNames = fmap convert ts
-                        when (null ts || any isNothing displayNames) $ throw $ KeyError "defaultTeams"
-                        let teams = fmap (\(Just n) -> DefaultTeam (toShortUrlPart n) n) displayNames
-                        pure $ NoAuthentication teams
-parseAuth c _      = throw $ KeyError "authenticationMode"
+parseAuth :: String -> IO AuthMode
+parseAuth "none" = pure NoAuthentication
+parseAuth _      = throw $ KeyError "authenticationMode"
 
 initialiseLogging :: IO ()
 initialiseLogging = do outHandler   <- configureHandler <$> streamHandler stdout DEBUG

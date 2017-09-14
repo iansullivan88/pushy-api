@@ -2,14 +2,16 @@ module Pushy.Types where
 
 import Database.Persist.MySQL
 import qualified Data.Text as T
+import Web.Spock
 
-data AuthenticationMode = NoAuthentication [DefaultTeam] deriving(Show)
+data AuthMode = NoAuthentication deriving(Show)
 
 data DefaultTeam = DefaultTeam { dName :: T.Text
                                , dDisplayName :: T.Text } deriving(Show)
 
 data PushyConfig = PushyConfig { port :: Int
-                               , authMode :: AuthenticationMode
-                               , dbInfo :: MySQLConnectInfo }
+                               , cAuthMode :: AuthMode
+                               , dbInfo :: MySQLConnectInfo
+                               , defaultTeamNames :: [T.Text] }
 
-                                
+data ApplicationState = ApplicationState { authMode :: AuthMode }

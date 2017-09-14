@@ -24,6 +24,7 @@ library
                      , Pushy.Utilities
   build-depends:       base >= 4.7 && < 5
                      , Spock
+                     , Spock-core
                      , bytestring
                      , configurator
                      , mtl
