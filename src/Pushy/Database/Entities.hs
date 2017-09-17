@@ -19,6 +19,7 @@ share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 User
     username T.Text maxlen=255    
     UniqueUsername username
+    deriving Show
 
 Team
     name T.Text maxlen=30
@@ -27,8 +28,8 @@ Team
     deriving Show
 
 TeamUser
-    userId UserId
     teamId TeamId
+    userId UserId
     UniqueTeamUser teamId userId
 
 Environment
@@ -50,8 +51,8 @@ Release
     name T.Text maxlen=30
     teamId TeamId
     displayName T.Text maxlen=100
-    state Int sqltype=TINYINT 
-    currentEnvironment EnvironmentId Maybe
+    state Int sqltype=TINYINT(4)
+    currentEnvironment EnvironmentId Maybe default=NULL
     UniqueReleaseName teamId name
     
 ReleaseArtifact

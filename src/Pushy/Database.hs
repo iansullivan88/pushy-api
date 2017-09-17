@@ -19,11 +19,8 @@ import Database.Persist.Sql
 import System.Log.Logger
 
 initialiseDatabase :: SqlBackend -> [DefaultTeam] -> IO ()
-initialiseDatabase b ts = do runReaderT (runMigration migrateAll) b 
-                             traverse_ createTeam ts
-                             query b $ UpsertUser "anonymous"
-                             where
-    createTeam (DefaultTeam n dn) = query b $ UpsertTeam n dn
+initialiseDatabase b ts = do runReaderT (runMigration migrateAll) b
+                             query b $ CreateDefaultTeamsAndUser ts
 
 withTransaction :: SqlBackend -> IO a -> IO a
 withTransaction b a = runReaderT (transactionUndo *> liftIO a <* transactionSave) b
@@ -38,10 +35,16 @@ query b r = do debugM loggerName $ "Executing request" ++ show r
                pure res
 
 executeRequest :: Request a -> ReaderT SqlBackend IO a
-executeRequest (UpsertTeam name displayName) = void $ upsert (Team name displayName) [TeamDisplayName =. displayName] 
-executeRequest (UpsertUser username) = void $ upsert (User username) [UserUsername =. username] 
-
-unsafeGet :: (MonadIO m, PersistRecordBackend record backend, PersistStoreRead backend) => Key record -> ReaderT backend m record
-unsafeGet = fmap fromJust . get
+executeRequest (CreateDefaultTeamsAndUser ts) = do
+    let username = "anonymous"
+    (Entity uId _) <- upsert (User username) [UserUsername =. username]
+    teams          <- traverse (\(DefaultTeam n dn) -> upsert (Team n dn) [TeamDisplayName =. dn]) ts
+    let teamIds = map entityKey teams
+    deleteWhere [TeamUserUserId ==. uId, TeamUserTeamId /<-. teamIds]
+    traverse_ (\tId -> upsert (TeamUser tId uId) []) teamIds
+executeRequest (GetUserByUsername n) = getBy (UniqueUsername n)
+executeRequest (GetTeamByName n) = getBy (UniqueTeamName n)
+executeRequest (IsUserInTeam (Entity uId _) (Entity tId _)) = isJust <$> getBy (UniqueTeamUser tId uId)
+     
 
 loggerName = "Pushy.Database"

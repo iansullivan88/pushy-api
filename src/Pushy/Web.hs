@@ -25,7 +25,7 @@ runPushyApi = do c <- C.readConfiguration
                  C.initialiseLogging 
                  pool <- runNoLoggingT $ createMySQLPool (dbInfo c) 100 
                  withResource pool (\backend -> withTransaction backend $ do
-                    infoM logger "Initialisingdatabase"
+                    infoM logger "Initialising database"
                     let defaultTeams = map (\dn -> DefaultTeam (toShortUrlPart dn) dn) (defaultTeamNames c)
                     initialiseDatabase backend defaultTeams)
                  sc <- defaultSpockCfg () (PCPool pool) ()
