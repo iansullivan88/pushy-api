@@ -12,7 +12,5 @@ import Web.Spock
 
 import qualified Data.Text as T
 
-authenticate :: AuthMode -> SpockAction SqlBackend () ApplicationState T.Text
-authenticate NoAuthentication = pure "anonymous"
-
-
+authenticate :: AuthMode -> ActionCtxT a Application (Maybe T.Text)
+authenticate NoAuthentication = pure $ Just "anonymous"

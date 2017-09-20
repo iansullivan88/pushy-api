@@ -43,8 +43,9 @@ executeRequest (CreateDefaultTeamsAndUser ts) = do
     deleteWhere [TeamUserUserId ==. uId, TeamUserTeamId /<-. teamIds]
     traverse_ (\tId -> upsert (TeamUser tId uId) []) teamIds
 executeRequest (GetUserByUsername n) = getBy (UniqueUsername n)
-executeRequest (GetTeamByName n) = getBy (UniqueTeamName n)
-executeRequest (IsUserInTeam (Entity uId _) (Entity tId _)) = isJust <$> getBy (UniqueTeamUser tId uId)
-     
+executeRequest (GetTeamsForUser (Entity uId _)) = do
+    tu <- selectList [TeamUserUserId ==. uId] []
+    let teamIds = fmap (teamUserTeamId  . entityVal)  tu
+    selectList [TeamId <-. teamIds] []
 
 loggerName = "Pushy.Database"

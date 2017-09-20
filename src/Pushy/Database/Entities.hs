@@ -10,6 +10,7 @@
 
 module Pushy.Database.Entities where
 
+import Data.Time.Clock
 import Database.Persist
 import Database.Persist.TH
 import qualified Data.ByteString as B
@@ -51,8 +52,6 @@ Release
     name T.Text maxlen=30
     teamId TeamId
     displayName T.Text maxlen=100
-    state Int sqltype=TINYINT(4)
-    currentEnvironment EnvironmentId Maybe default=NULL
     UniqueReleaseName teamId name
     
 ReleaseArtifact
@@ -63,6 +62,11 @@ ReleaseArtifact
 ReleaseEnvironment
     releaseId ReleaseId
     environmentId EnvironmentId
+    state Int sqltype=TINYINT(4)
+    order Int sqltype=TINYINT(4)
+    deploymentStartTime UTCTime Maybe
+    deploymentEndTime UTCTime Maybe
+    UniqueReleaseEnvironment releaseId environmentId
 
 Worker
     accessCode B.ByteString
