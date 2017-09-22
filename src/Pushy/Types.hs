@@ -5,6 +5,7 @@ import Database.Persist.MySQL
 import qualified Data.Text as T
 import Web.Spock
 
+type PushyAction ctx = ActionCtxT ctx Application
 type Application = WebStateM SqlBackend () ApplicationState
 
 data PushyException = UserVisibleError Int T.Text 

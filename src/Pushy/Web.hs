@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Pushy.Web(runPushyApi) where
 
@@ -17,7 +18,9 @@ import qualified Pushy.Web.Types as PW
 import Control.Applicative
 import Control.Exception
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.Logger(runNoLoggingT)
+import Data.Aeson hiding (json)
 import Data.HVect
 import Data.Maybe
 import Data.Pool
@@ -47,21 +50,44 @@ runPushyApi = do c <- C.readConfiguration
                  runSpockNoBanner serverPort (spock sc' routes)
 
 routes :: SpockM SqlBackend () ApplicationState ()
-routes = subcomponent "api" $
-    prehook teamUserHook $ error "not implemented"
+routes = prehook userHook $ do
+    get "team" $ simpleGet (PD.GetTeamsForUser <$> getContext) (fmap mapTeam)
+    prehook teamUserHook $ do
+        get (var <//> "test") (\(tn :: T.Text) -> text "test")
+            
         
-
-teamUserHook :: ActionCtxT () Application (Entity PE.User, Entity PE.Team)
-teamUserHook = do
+userHook :: PushyAction ctx (Entity PE.User)
+userHook = do
     authMode <- authMode <$> getState
     username <- fromMaybe (throw $ UserVisibleError 401 "Please log in") <$> authenticate authMode 
-    user     <- fromMaybe (throw $ InternalError "User not found") <$> spockQuery (PD.GetUserByUsername username)
-    teams    <- spockQuery (PD.GetTeamsForUser user)
-    (_:teamName:_) <- pathInfo <$> request 
+    fromMaybe (throw $ InternalError "User not found") <$> spockQuery (PD.GetUserByUsername username)
+
+teamUserHook :: PushyAction (Entity PE.User) (Entity PE.User, Entity PE.Team)
+teamUserHook = do
+    user           <- getContext
+    teams          <- spockQuery (PD.GetTeamsForUser user)
+    (teamName:_) <- pathInfo <$> request 
     case find (\(Entity _ t) -> PE.teamName t == teamName) teams of
         Just team -> return (user, team)
         Nothing   -> throw $ UserVisibleError 403 "No access to team"
 
+simpleGet :: (ToJSON wr) => PushyAction ctx (PD.Request r) -> (r -> wr) -> PushyAction ctx ()
+simpleGet a f = do req  <- a
+                   dRes <- spockQuery req
+                   let wr = f dRes
+                   json wr
+
+mapTeam :: Entity PE.Team -> PW.Team
+mapTeam = mapEntity (\t -> PW.Team { PW.teamName = PE.teamName t
+                                   , PW.teamDisplayName = PE.teamDisplayName t })
+
+mapEntity :: (a -> b) -> Entity a -> b
+mapEntity f = f. entityVal
+
+spockTransaction :: IO a -> PushyAction ctx a
+spockTransaction a = runQuery (`withTransaction` a)
+
+spockQuery :: PD.Request r -> PushyAction ctx r
 spockQuery r = runQuery (`query` r)
               
 logger :: String

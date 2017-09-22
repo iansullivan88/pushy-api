@@ -22,7 +22,7 @@ initialiseDatabase :: SqlBackend -> [DefaultTeam] -> IO ()
 initialiseDatabase b ts = do runReaderT (runMigration migrateAll) b
                              query b $ CreateDefaultTeamsAndUser ts
 
-withTransaction :: SqlBackend -> IO a -> IO a
+withTransaction :: (MonadIO m) => SqlBackend -> IO a -> m a
 withTransaction b a = runReaderT (transactionUndo *> liftIO a <* transactionSave) b
 
 query :: SqlBackend -> Request a -> IO a
