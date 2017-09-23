@@ -6,9 +6,13 @@ import Data.Aeson
 import Data.Aeson.TH
 import qualified Data.Text as T
 
-data Team = Team { teamName :: T.Text
-                 , teamDisplayName :: T.Text }
-$(deriveJSON defaultOptions{fieldLabelModifier = drop 4} ''Team)
+data TeamResponse = TeamResponse { teamName :: T.Text
+                                 , teamDisplayName :: T.Text }
+$(deriveJSON defaultOptions{fieldLabelModifier = drop 4} ''TeamResponse)
+
+
+data ArtifactTypeResponse = ArtifactTypeResponse { artifactTypeName :: T.Text }
+$(deriveJSON defaultOptions{fieldLabelModifier = drop 12} ''ArtifactTypeResponse)
 
 data ErrorResponse = ErrorResponse { errorMessage :: T.Text }
 $(deriveJSON defaultOptions ''ErrorResponse)

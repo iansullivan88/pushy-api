@@ -47,5 +47,6 @@ executeRequest (GetTeamsForUser (Entity uId _)) = do
     tu <- selectList [TeamUserUserId ==. uId] []
     let teamIds = fmap (teamUserTeamId  . entityVal)  tu
     selectList [TeamId <-. teamIds] []
+executeRequest (GetArtifactTypes (Entity tId _)) = selectList [ArtifactTypeTeamId ==. tId] []
 
 loggerName = "Pushy.Database"

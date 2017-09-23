@@ -22,6 +22,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Logger(runNoLoggingT)
 import Data.Aeson hiding (json)
 import Data.HVect
+import Data.Kind
 import Data.Maybe
 import Data.Pool
 import Data.List
@@ -33,6 +34,7 @@ import Network.Wai hiding(Application)
 import System.Log.Logger
 import Web.Spock
 import Web.Spock.Config
+import Web.Routing.Combinators(PathState(Open))
 
 runPushyApi :: IO ()
 runPushyApi = do c <- C.readConfiguration
@@ -52,8 +54,8 @@ runPushyApi = do c <- C.readConfiguration
 routes :: SpockM SqlBackend () ApplicationState ()
 routes = prehook userHook $ do
     get "team" $ simpleGet (PD.GetTeamsForUser <$> getContext) (fmap mapTeam)
-    prehook teamUserHook $ do
-        get (var <//> "test") (\(tn :: T.Text) -> text "test")
+    prehook teamUserHook $
+        get (teamPath <//> "artifact") $ \_ -> simpleGet (PD.GetArtifactTypes <$> getTeamCtx) (fmap mapArtifactType)
             
         
 userHook :: PushyAction ctx (Entity PE.User)
@@ -77,9 +79,15 @@ simpleGet a f = do req  <- a
                    let wr = f dRes
                    json wr
 
-mapTeam :: Entity PE.Team -> PW.Team
-mapTeam = mapEntity (\t -> PW.Team { PW.teamName = PE.teamName t
-                                   , PW.teamDisplayName = PE.teamDisplayName t })
+getTeamCtx :: PushyAction (Entity PE.User, Entity PE.Team) (Entity PE.Team)
+getTeamCtx = snd <$> getContext 
+
+mapTeam :: Entity PE.Team -> PW.TeamResponse
+mapTeam = mapEntity (\t -> PW.TeamResponse { PW.teamName = PE.teamName t
+                                           , PW.teamDisplayName = PE.teamDisplayName t })
+
+mapArtifactType :: Entity PE.ArtifactType -> PW.ArtifactTypeResponse
+mapArtifactType = mapEntity (\a -> PW.ArtifactTypeResponse { PW.artifactTypeName = PE.artifactTypeName a })
 
 mapEntity :: (a -> b) -> Entity a -> b
 mapEntity f = f. entityVal
@@ -90,5 +98,8 @@ spockTransaction a = runQuery (`withTransaction` a)
 spockQuery :: PD.Request r -> PushyAction ctx r
 spockQuery r = runQuery (`query` r)
               
+teamPath :: Path (T.Text ': '[]) Open
+teamPath = var
+
 logger :: String
 logger = "Pushy.Web"
