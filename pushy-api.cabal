@@ -19,7 +19,6 @@ library
                      , Pushy.Web.Types
                      , Pushy.Web.CommonRoutes
                      , Pushy.Authentication
-                     , Pushy.Configuration
                      , Pushy.Database
                      , Pushy.Database.Entities
                      , Pushy.Database.Types

@@ -18,9 +18,8 @@ import Database.Persist
 import Database.Persist.Sql
 import System.Log.Logger
 
-initialiseDatabase :: SqlBackend -> [DefaultTeam] -> IO ()
-initialiseDatabase b ts = do runReaderT (runMigration migrateAll) b
-                             query b $ CreateDefaultTeamsAndUser ts
+initialiseDatabase :: SqlBackend -> IO ()
+initialiseDatabase = runReaderT (runMigration migrateAll)
 
 withTransaction :: (MonadIO m) => SqlBackend -> IO a -> m a
 withTransaction b a = runReaderT (transactionUndo *> liftIO a <* transactionSave) b
@@ -38,7 +37,7 @@ executeRequest :: Request a -> ReaderT SqlBackend IO a
 executeRequest (CreateDefaultTeamsAndUser ts) = do
     let username = "anonymous"
     (Entity uId _) <- upsert (User username) [UserUsername =. username]
-    teams          <- traverse (\(DefaultTeam n dn) -> upsert (Team n dn) [TeamDisplayName =. dn]) ts
+    teams          <- traverse (\(n, dn) -> upsert (Team n dn) [TeamDisplayName =. dn]) ts
     let teamIds = map entityKey teams
     deleteWhere [TeamUserUserId ==. uId, TeamUserTeamId /<-. teamIds]
     traverse_ (\tId -> upsert (TeamUser tId uId) []) teamIds
