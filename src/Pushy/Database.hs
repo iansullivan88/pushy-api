@@ -47,5 +47,6 @@ executeRequest (GetTeamsForUser (Entity uId _)) = do
     let teamIds = fmap (teamUserTeamId  . entityVal)  tu
     selectList [TeamId <-. teamIds] []
 executeRequest (GetArtifactTypes (Entity tId _)) = selectList [ArtifactTypeTeamId ==. tId] []
+executeRequest (AddArtifactType (Entity tId _) n) = insert_ $ ArtifactType n tId
 
 loggerName = "Pushy.Database"

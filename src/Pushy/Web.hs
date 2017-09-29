@@ -51,18 +51,22 @@ data RequestContext auth = RequestContext { request :: W.Request
 
 runPushyServer :: Int -> AuthMode -> Pool SqlBackend -> IO ()
 runPushyServer port authMode pool = do
-    let app = R.route $ R.prepare $ register registerWaiRoutes (routes authMode pool)
-    run port app
+    let waiRoutes = register registerWaiRoutes (routes authMode pool)
+    let app = R.route $ R.prepare $ waiRoutes >> todo
+    let settings = setPort port $ setOnExceptionResponse exceptionResponse defaultSettings 
+    runSettings settings app
 
 routes :: AuthMode -> Pool SqlBackend -> Routes (Method, B.ByteString) BasicHandler ()
-routes authMode pool = do
+routes authMode pool =
     withHandler (globalHandler pool) $ 
         withHandler (userHandler authMode) $ do
             get "teams" getTeams
-            withHandler (userTeamHandler) $ do
-                get ":teamName/artifactType" getArtifactTypes
+            withHandler userTeamHandler $ do
+                get  ":teamName/artifactType" getArtifactTypes
+                post ":teamName/artifactType/:name" addArtifactType
     where
     get = route' methodGet
+    post = route' methodPost
     route' method path = route (method, path)
 
 registerWaiRoutes :: (Method, B.ByteString) -> BasicHandler -> R.Routes b IO ()
@@ -90,7 +94,7 @@ globalHandler :: Pool SqlBackend -> Handler () W.Response -> BasicHandler
 globalHandler p h (r,cs) = withResource p (\b ->
     -- Handle any application errors inside withResource - these shouldn't
     -- result in pooled connections getting destroyed
-    catch (runReaderT h (ctx b)) handleException) where
+    catch (Pushy.Database.withTransaction b $ runReaderT h (ctx b)) handleException) where
     handleException = pure . exceptionResponse . toException :: PushyException -> IO W.Response
     ctx b = RequestContext r () b cs
             
@@ -107,15 +111,23 @@ respond :: (ToJSON r) => Int -> B.ByteString -> r -> W.Response
 respond s m o = W.responseLBS (mkStatus s m) [(hContentType, "application/json")] (encode o)
 
 getTeams :: Handler (Entity PE.User) W.Response
-getTeams = do u  <- asks auth
-              ts <- query $ PD.GetTeamsForUser u
-              pure $ respondOk $ fmap (\(Entity _ t) -> PW.TeamResponse { PW.teamName = PE.teamName t
-                                                               , PW.teamDisplayName = PE.teamDisplayName t }) ts
+getTeams = simpleHandler (pure . PD.GetTeamsForUser) (fmap mapTeam) where
+   mapTeam (Entity _ t) = PW.TeamResponse { PW.teamName = PE.teamName t
+                                          , PW.teamDisplayName = PE.teamDisplayName t }
 
 getArtifactTypes :: Handler (Entity PE.User, Entity PE.Team) W.Response
-getArtifactTypes = do (_, t) <- asks auth
-                      as <- query $ PD.GetArtifactTypes t
-                      pure $ respondOk $ fmap (\(Entity _ a) -> PW.ArtifactTypeResponse { PW.artifactTypeName = PE.artifactTypeName a }) as
+getArtifactTypes = simpleHandler (pure . PD.GetArtifactTypes . snd) (fmap mapArtifactType) where
+  mapArtifactType (Entity _ a) = PW.ArtifactTypeResponse { PW.artifactTypeName = PE.artifactTypeName a }
+
+addArtifactType :: Handler (Entity PE.User, Entity PE.Team) W.Response
+addArtifactType = simpleHandler (\(_,t) -> capture "name" >>= pure . PD.AddArtifactType t) id
+
+simpleHandler :: (ToJSON rw) => (auth -> Handler auth (PD.Request r)) -> (r -> rw) -> Handler auth W.Response
+simpleHandler fReq fRes = do a   <- asks auth
+                             req <- fReq a
+                             res <- query req
+                             pure $ respondOk $ fRes res
+
 
 capture :: (FromByteString r) => B.ByteString -> Handler auth r
 capture key = asks capts >>= \cs ->

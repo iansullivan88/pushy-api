@@ -14,4 +14,5 @@ data Request a where
     GetUserByUsername :: T.Text -> Request (Maybe (Entity User))
     GetTeamsForUser :: Entity User -> Request [Entity Team]
     GetArtifactTypes :: Entity Team -> Request [Entity ArtifactType]
+    AddArtifactType :: Entity Team -> T.Text -> Request ()
 deriving instance Show (Request a)
