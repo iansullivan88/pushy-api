@@ -1,105 +1,131 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
-module Pushy.Web(runPushyApi) where
+module Pushy.Web(runPushyServer) where
 
 import Pushy.Authentication
-import Pushy.Database
+import qualified Pushy.Database
 import qualified Pushy.Database.Entities as PE
 import qualified Pushy.Database.Types as PD
-import qualified Pushy.Configuration as C
 import Pushy.Types
 import Pushy.Utilities
+import Pushy.Web.CommonRoutes
 import qualified Pushy.Web.Types as PW
 
 import Control.Applicative
-import Control.Exception
+import Control.Exception hiding(Handler)
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Logger(runNoLoggingT)
+import Control.Monad.Reader
 import Data.Aeson hiding (json)
-import Data.HVect
-import Data.Kind
-import Data.Maybe
-import Data.Pool
-import Data.List
-import Database.Persist.MySQL hiding(get)
-import qualified Data.Text as T
 import qualified Data.ByteString as B
+import Data.ByteString.Conversion.From
+import qualified Data.ByteString.Lazy as LB
+import Data.Kind
+import Data.List
+import Data.Maybe
+import Data.Monoid
+import Data.Pool
+import Data.Predicate
+import qualified Data.Text as T
+import Data.Text.Encoding
+import Database.Persist.Sql
+import qualified Network.Wai as W
+import Network.Wai.Handler.Warp
+import Network.Wai.Routing.Request
+import Network.Wai.Predicate.Error(Error)
+import Network.Wai.Predicate.Request
+import qualified Network.Wai.Routing.Route as R
 import Network.HTTP.Types
-import Network.Wai hiding(Application)
+import Network.HTTP.Types.Method
 import System.Log.Logger
-import Web.Spock
-import Web.Spock.Config
-import Web.Routing.Combinators(PathState(Open))
 
-runPushyApi :: IO ()
-runPushyApi = do c <- C.readConfiguration
-                 C.initialiseLogging 
-                 pool <- runNoLoggingT $ createMySQLPool (dbInfo c) 100 
-                 withResource pool (\backend -> withTransaction backend $ do
-                    infoM logger "Initialising database"
-                    let defaultTeams = map (\dn -> DefaultTeam (toShortUrlPart dn) dn) (defaultTeamNames c)
-                    initialiseDatabase backend defaultTeams)
-                 let state = ApplicationState (cAuthMode c)
-                 sc <- defaultSpockCfg () (PCPool pool) state
-                 let sc' = sc { spc_csrfProtection = False }
-                 let serverPort = port c
-                 infoM logger $ "Starting server on port " ++ show serverPort
-                 runSpockNoBanner serverPort (spock sc' routes)
+type BasicHandler = (W.Request, [(B.ByteString, B.ByteString)]) -> IO W.Response
 
-routes :: SpockM SqlBackend () ApplicationState ()
-routes = prehook userHook $ do
-    get "team" $ simpleGet (PD.GetTeamsForUser <$> getContext) (fmap mapTeam)
-    prehook teamUserHook $
-        get (teamPath <//> "artifact") $ \_ -> simpleGet (PD.GetArtifactTypes <$> getTeamCtx) (fmap mapArtifactType)
-            
-        
-userHook :: PushyAction ctx (Entity PE.User)
-userHook = do
-    authMode <- authMode <$> getState
-    username <- fromMaybe (throw $ UserVisibleError 401 "Please log in") <$> authenticate authMode 
-    fromMaybe (throw $ InternalError "User not found") <$> spockQuery (PD.GetUserByUsername username)
+type Handler auth = ReaderT (RequestContext auth) IO
 
-teamUserHook :: PushyAction (Entity PE.User) (Entity PE.User, Entity PE.Team)
-teamUserHook = do
-    user           <- getContext
-    teams          <- spockQuery (PD.GetTeamsForUser user)
-    (teamName:_) <- pathInfo <$> request 
+data RequestContext auth = RequestContext { request :: W.Request
+                                          , auth    :: auth
+                                          , conn    :: SqlBackend
+                                          , capts   :: [(B.ByteString, B.ByteString)] }                                              
+
+runPushyServer :: Int -> AuthMode -> Pool SqlBackend -> IO ()
+runPushyServer port authMode pool = do
+    let app = R.route $ R.prepare $ register registerWaiRoutes (routes authMode pool)
+    run port app
+
+routes :: AuthMode -> Pool SqlBackend -> Routes (Method, B.ByteString) BasicHandler ()
+routes authMode pool = do
+    withHandler (globalHandler pool) $ 
+        withHandler (userHandler authMode) $ do
+            get "teams" getTeams
+            withHandler (userTeamHandler) $ do
+                get ":teamName/artifactType" getArtifactTypes
+    where
+    get = route' methodGet
+    route' method path = route (method, path)
+
+registerWaiRoutes :: (Method, B.ByteString) -> BasicHandler -> R.Routes b IO ()
+registerWaiRoutes (m, p) h = R.addRoute m p (R.continue h) inputPredicate where
+    inputPredicate req = Okay 0 (getRequest req, captures req)
+
+userHandler :: AuthMode -> Handler (Entity PE.User) a -> Handler () a
+userHandler authMode h = do
+    let un = fromMaybe (throw $ UserVisibleError 401 "Please log in") (getAuthenticatedUsername authMode)
+    mUser <- query $ PD.GetUserByUsername un
+    let user = fromMaybe (throw $ ApplicationError ("Could not find user with name " <> un)) mUser
+    withReaderT (\r -> r { auth = user }) h
+
+userTeamHandler :: Handler (Entity PE.User, Entity PE.Team) r -> Handler (Entity PE.User) r
+userTeamHandler h = do
+    user     <- asks auth
+    teamName <- capture "teamName"
+    teams    <- query (PD.GetTeamsForUser user)
     case find (\(Entity _ t) -> PE.teamName t == teamName) teams of
-        Just team -> return (user, team)
+        Just team -> withReaderT (\r -> r { auth = (user, team) }) h 
         Nothing   -> throw $ UserVisibleError 403 "No access to team"
+                
 
-simpleGet :: (ToJSON wr) => PushyAction ctx (PD.Request r) -> (r -> wr) -> PushyAction ctx ()
-simpleGet a f = do req  <- a
-                   dRes <- spockQuery req
-                   let wr = f dRes
-                   json wr
+globalHandler :: Pool SqlBackend -> Handler () W.Response -> BasicHandler
+globalHandler p h (r,cs) = withResource p (\b ->
+    -- Handle any application errors inside withResource - these shouldn't
+    -- result in pooled connections getting destroyed
+    catch (runReaderT h (ctx b)) handleException) where
+    handleException = pure . exceptionResponse . toException :: PushyException -> IO W.Response
+    ctx b = RequestContext r () b cs
+            
+exceptionResponse :: SomeException -> W.Response
+exceptionResponse e = respond st "Error" (PW.ErrorResponse mess) where
+    (st, mess) = case fromException e of
+                      Just (UserVisibleError s m) -> (s, "Error")
+                      otherwise                   -> (500, "An unexpected error occurred")
 
-getTeamCtx :: PushyAction (Entity PE.User, Entity PE.Team) (Entity PE.Team)
-getTeamCtx = snd <$> getContext 
+respondOk :: (ToJSON r) => r -> W.Response
+respondOk = respond 200 "OK"
 
-mapTeam :: Entity PE.Team -> PW.TeamResponse
-mapTeam = mapEntity (\t -> PW.TeamResponse { PW.teamName = PE.teamName t
-                                           , PW.teamDisplayName = PE.teamDisplayName t })
+respond :: (ToJSON r) => Int -> B.ByteString -> r -> W.Response
+respond s m o = W.responseLBS (mkStatus s m) [(hContentType, "application/json")] (encode o)
 
-mapArtifactType :: Entity PE.ArtifactType -> PW.ArtifactTypeResponse
-mapArtifactType = mapEntity (\a -> PW.ArtifactTypeResponse { PW.artifactTypeName = PE.artifactTypeName a })
+getTeams :: Handler (Entity PE.User) W.Response
+getTeams = do u  <- asks auth
+              ts <- query $ PD.GetTeamsForUser u
+              pure $ respondOk $ fmap (\(Entity _ t) -> PW.TeamResponse { PW.teamName = PE.teamName t
+                                                               , PW.teamDisplayName = PE.teamDisplayName t }) ts
 
-mapEntity :: (a -> b) -> Entity a -> b
-mapEntity f = f. entityVal
+getArtifactTypes :: Handler (Entity PE.User, Entity PE.Team) W.Response
+getArtifactTypes = do (_, t) <- asks auth
+                      as <- query $ PD.GetArtifactTypes t
+                      pure $ respondOk $ fmap (\(Entity _ a) -> PW.ArtifactTypeResponse { PW.artifactTypeName = PE.artifactTypeName a }) as
 
-spockTransaction :: IO a -> PushyAction ctx a
-spockTransaction a = runQuery (`withTransaction` a)
+capture :: (FromByteString r) => B.ByteString -> Handler auth r
+capture key = asks capts >>= \cs ->
+         let v = fromMaybe err (lookup key cs)
+         in pure $ fromMaybe err (fromByteString v) where
+    err = throw $ ApplicationError $ "Couldn't read capture: " <> decodeUtf8 key
 
-spockQuery :: PD.Request r -> PushyAction ctx r
-spockQuery r = runQuery (`query` r)
-              
-teamPath :: Path (T.Text ': '[]) Open
-teamPath = var
+query :: PD.Request r -> Handler auth r
+query req = asks conn >>= \b ->
+    liftIO $ Pushy.Database.query b req
 
 logger :: String
 logger = "Pushy.Web"

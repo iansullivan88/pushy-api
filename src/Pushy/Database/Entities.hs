@@ -51,7 +51,6 @@ Artifact
 Release
     name T.Text maxlen=30
     teamId TeamId
-    displayName T.Text maxlen=100
     UniqueReleaseName teamId name
     
 ReleaseArtifact
@@ -64,8 +63,8 @@ ReleaseEnvironment
     environmentId EnvironmentId
     state Int sqltype=TINYINT(4)
     order Int sqltype=TINYINT(4)
-    deploymentStartTime UTCTime Maybe
-    deploymentEndTime UTCTime Maybe
+    deploymentStartTime UTCTime Maybe default=NULL
+    deploymentEndTime UTCTime Maybe default=NULL
     UniqueReleaseEnvironment releaseId environmentId
 
 Worker

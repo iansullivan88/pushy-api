@@ -14,8 +14,10 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Pushy.Web
+  exposed-modules:     Pushy
+                     , Pushy.Web
                      , Pushy.Web.Types
+                     , Pushy.Web.CommonRoutes
                      , Pushy.Authentication
                      , Pushy.Configuration
                      , Pushy.Database
@@ -24,9 +26,8 @@ library
                      , Pushy.Types
                      , Pushy.Utilities
   build-depends:       base >= 4.7 && < 5
-                     , Spock
-                     , Spock-core
                      , bytestring
+                     , bytestring-conversion
                      , configurator
                      , mtl
                      , monad-logger
@@ -41,7 +42,9 @@ library
                      , http-types
                      , hvect
                      , wai
-                     , reroute
+                     , wai-routing
+                     , wai-predicates
+                     , warp
   default-language:    Haskell2010
 
 executable pushy-api-exe

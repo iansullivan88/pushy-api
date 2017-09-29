@@ -1,5 +1,5 @@
 module Main where
 
-import Pushy.Web
+import Pushy
 
 main = runPushyApi
