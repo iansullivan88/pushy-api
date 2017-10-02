@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Pushy.Web(runPushyServer) where
 
@@ -11,14 +12,13 @@ import Pushy.Types
 import Pushy.Utilities
 import Pushy.Web.CommonRoutes
 import qualified Pushy.Web.Types as PW
-
-import Control.Applicative
 import Control.Exception hiding(Handler)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Data.Aeson hiding (json)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import Data.ByteString.Conversion.From
 import qualified Data.ByteString.Lazy as LB
 import Data.Kind
@@ -33,7 +33,7 @@ import Database.Persist.Sql
 import qualified Network.Wai as W
 import Network.Wai.Handler.Warp
 import Network.Wai.Routing.Request
-import Network.Wai.Predicate.Error(Error)
+import Network.Wai.Predicate.Error(Error,status,message)
 import Network.Wai.Predicate.Request
 import qualified Network.Wai.Routing.Route as R
 import Network.HTTP.Types
@@ -52,8 +52,9 @@ data RequestContext auth = RequestContext { request :: W.Request
 runPushyServer :: Int -> AuthMode -> Pool SqlBackend -> IO ()
 runPushyServer port authMode pool = do
     let waiRoutes = register registerWaiRoutes (routes authMode pool)
-    let app = R.route $ R.prepare $ waiRoutes >> todo
-    let settings = setPort port $ setOnExceptionResponse exceptionResponse defaultSettings 
+        app = errorHandlerMiddleware $ R.route $ R.prepare $ waiRoutes >> R.renderer handleRoutingError
+        settings = setPort port $
+            setLogger waiLogger defaultSettings
     runSettings settings app
 
 routes :: AuthMode -> Pool SqlBackend -> Routes (Method, B.ByteString) BasicHandler ()
@@ -68,6 +69,16 @@ routes authMode pool =
     get = route' methodGet
     post = route' methodPost
     route' method path = route (method, path)
+
+errorHandlerMiddleware :: W.Application -> W.Application
+errorHandlerMiddleware app req res = catch (app req res) $ \e ->
+    errorM logger (show e) >> res (exceptionResponse e) 
+
+exceptionResponse :: SomeException -> W.Response
+exceptionResponse e = respond st "Error" (PW.ErrorResponse mess) where
+    (st, mess) = case fromException e of
+                      Just (UserVisibleError s m) -> (s, m)
+                      otherwise                   -> (500, "An unexpected error occurred")
 
 registerWaiRoutes :: (Method, B.ByteString) -> BasicHandler -> R.Routes b IO ()
 registerWaiRoutes (m, p) h = R.addRoute m p (R.continue h) inputPredicate where
@@ -91,19 +102,24 @@ userTeamHandler h = do
                 
 
 globalHandler :: Pool SqlBackend -> Handler () W.Response -> BasicHandler
-globalHandler p h (r,cs) = withResource p (\b ->
-    -- Handle any application errors inside withResource - these shouldn't
-    -- result in pooled connections getting destroyed
-    catch (Pushy.Database.withTransaction b $ runReaderT h (ctx b)) handleException) where
-    handleException = pure . exceptionResponse . toException :: PushyException -> IO W.Response
+globalHandler p h (r,cs) = bracketWithHandler (takeResource p) onSuccess onException run where
+    run (b,_)           = Pushy.Database.withTransaction b $ runReaderT h $ ctx b
+    onSuccess (b,l)     = putResource l b
+    onException e (b,l)
+        -- Put the resource back if it is an exception the application has thrown
+        | Just (_ :: PushyException) <- fromException e = onSuccess (b,l)
+        | otherwise                                     = destroyResource p l b 
     ctx b = RequestContext r () b cs
             
-exceptionResponse :: SomeException -> W.Response
-exceptionResponse e = respond st "Error" (PW.ErrorResponse mess) where
-    (st, mess) = case fromException e of
-                      Just (UserVisibleError s m) -> (s, "Error")
-                      otherwise                   -> (500, "An unexpected error occurred")
+-- Throw an exception and let the wai error handler deal with it
+handleRoutingError :: Error -> Maybe (LB.ByteString, ResponseHeaders)
+handleRoutingError err = throw $ UserVisibleError s m  where
+    s = statusCode $ status err
+    m = decodeUtf8 $ statusMessage $ status err     
 
+waiLogger :: W.Request -> Status -> Maybe Integer -> IO ()
+waiLogger r s _ = infoM logger $ BC.unpack $ B.intercalate " " [W.requestMethod r, BC.pack $ show $ statusCode s, W.rawPathInfo r]
+    
 respondOk :: (ToJSON r) => r -> W.Response
 respondOk = respond 200 "OK"
 

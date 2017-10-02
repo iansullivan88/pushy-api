@@ -56,9 +56,8 @@ parseAuth _      = throw $ KeyError "authenticationMode"
 
 initialiseLogging :: IO ()
 initialiseLogging = do outHandler   <- configureHandler <$> streamHandler stdout DEBUG
-                       errorHandler <- configureHandler <$> streamHandler stderr ERROR
                        updateGlobalLogger rootLoggerName (setLevel DEBUG)
-                       updateGlobalLogger rootLoggerName (setHandlers [outHandler, errorHandler]) 
+                       updateGlobalLogger rootLoggerName (setHandlers [outHandler]) 
     where configureHandler h = setFormatter h (simpleLogFormatter "[$time $loggername $tid $prio] $msg")
     
 
