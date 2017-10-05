@@ -13,6 +13,8 @@ data Request a where
     CreateDefaultTeamsAndUser :: [(T.Text, T.Text)] -> Request ()
     GetUserByUsername :: T.Text -> Request (Maybe (Entity User))
     GetTeamsForUser :: Entity User -> Request [Entity Team]
+    GetArtifactType :: Entity Team -> T.Text -> Request (Maybe (Entity ArtifactType))
     GetArtifactTypes :: Entity Team -> Request [Entity ArtifactType]
     AddArtifactType :: Entity Team -> T.Text -> Request ()
+    AddArtifact :: Entity ArtifactType -> T.Text -> Request ()
 deriving instance Show (Request a)

@@ -1,6 +1,9 @@
 module Pushy.Utilities where
 
+import Pushy.Types
+
 import Control.Exception
+import Control.Monad.IO.Class
 import Data.Aeson
 import Data.Aeson.TH
 import Data.Char
@@ -29,3 +32,17 @@ bracketWithHandler before onSuccess onException thing =
         r <- restore (thing a) `catch` (\e -> onException e a >> throwIO e)
         _ <- onSuccess a
         pure r
+
+throwUserError :: (MonadIO m) => Int -> T.Text -> m a
+throwUserError s m = liftIO $ throwIO $ UserVisibleError s m
+
+throwApplicationError :: (MonadIO m) => Int -> T.Text -> m a
+throwApplicationError s m = liftIO $ throwIO $ ApplicationError s m
+
+throwIfNothing :: (MonadIO m, Exception e) => Maybe a -> e -> m a
+throwIfNothing r = throwIfNothingM (pure r)
+
+throwIfNothingM :: (MonadIO m, Exception e) => m (Maybe a) -> e -> m a
+throwIfNothingM a e = a >>= \r -> case r of
+    Nothing -> liftIO $ throwIO e
+    Just v  -> pure v

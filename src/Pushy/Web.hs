@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DisambiguateRecordFields #-}
 
 module Pushy.Web(runPushyServer) where
 
@@ -65,6 +66,7 @@ routes authMode pool =
             withHandler userTeamHandler $ do
                 get  ":teamName/artifactType" getArtifactTypes
                 post ":teamName/artifactType/:name" addArtifactType
+                post ":teamName/artifact/:name" addArtifact
     where
     get = route' methodGet
     post = route' methodPost
@@ -86,9 +88,8 @@ registerWaiRoutes (m, p) h = R.addRoute m p (R.continue h) inputPredicate where
 
 userHandler :: AuthMode -> Handler (Entity PE.User) a -> Handler () a
 userHandler authMode h = do
-    let un = fromMaybe (throw $ UserVisibleError 401 "Please log in") (getAuthenticatedUsername authMode)
-    mUser <- query $ PD.GetUserByUsername un
-    let user = fromMaybe (throw $ ApplicationError ("Could not find user with name " <> un)) mUser
+    un    <- throwIfNothing (getAuthenticatedUsername authMode) (UserVisibleError 401 "Please log in")
+    user <- throwIfNothingM (query $ PD.GetUserByUsername un) (ApplicationError 500 ("Could not find user with name " <> un))
     withReaderT (\r -> r { auth = user }) h
 
 userTeamHandler :: Handler (Entity PE.User, Entity PE.Team) r -> Handler (Entity PE.User) r
@@ -98,7 +99,7 @@ userTeamHandler h = do
     teams    <- query (PD.GetTeamsForUser user)
     case find (\(Entity _ t) -> PE.teamName t == teamName) teams of
         Just team -> withReaderT (\r -> r { auth = (user, team) }) h 
-        Nothing   -> throw $ UserVisibleError 403 "No access to team"
+        Nothing   -> throwUserError 403 "No access to team"
                 
 
 globalHandler :: Pool SqlBackend -> Handler () W.Response -> BasicHandler
@@ -123,20 +124,31 @@ waiLogger r s _ = infoM logger $ BC.unpack $ B.intercalate " " [W.requestMethod 
 respondOk :: (ToJSON r) => r -> W.Response
 respondOk = respond 200 "OK"
 
+respondEmpty :: Handler auth W.Response
+respondEmpty = pure $ respondOk ()
+
 respond :: (ToJSON r) => Int -> B.ByteString -> r -> W.Response
 respond s m o = W.responseLBS (mkStatus s m) [(hContentType, "application/json")] (encode o)
 
 getTeams :: Handler (Entity PE.User) W.Response
 getTeams = simpleHandler (pure . PD.GetTeamsForUser) (fmap mapTeam) where
-   mapTeam (Entity _ t) = PW.TeamResponse { PW.teamName = PE.teamName t
-                                          , PW.teamDisplayName = PE.teamDisplayName t }
+   mapTeam (Entity _ t) = PW.TeamResponse { name = PE.teamName t
+                                          , displayName = PE.teamDisplayName t }
 
 getArtifactTypes :: Handler (Entity PE.User, Entity PE.Team) W.Response
 getArtifactTypes = simpleHandler (pure . PD.GetArtifactTypes . snd) (fmap mapArtifactType) where
-  mapArtifactType (Entity _ a) = PW.ArtifactTypeResponse { PW.artifactTypeName = PE.artifactTypeName a }
+  mapArtifactType (Entity _ a) = PW.ArtifactTypeResponse { name = PE.artifactTypeName a }
 
 addArtifactType :: Handler (Entity PE.User, Entity PE.Team) W.Response
 addArtifactType = simpleHandler (\(_,t) -> capture "name" >>= pure . PD.AddArtifactType t) id
+
+addArtifact :: Handler (Entity PE.User, Entity PE.Team) W.Response
+addArtifact = do n     <- capture "name"
+                 (_,t) <- asks auth
+                 (PW.ArtifactRequest atName) <- requestBody
+                 at    <- throwIfNothingM (query $ PD.GetArtifactType t atName) (UserVisibleError 400 ("Artifact type " <> atName <> " does not exist"))
+                 query $ PD.AddArtifact at n
+                 respondEmpty
 
 simpleHandler :: (ToJSON rw) => (auth -> Handler auth (PD.Request r)) -> (r -> rw) -> Handler auth W.Response
 simpleHandler fReq fRes = do a   <- asks auth
@@ -144,12 +156,16 @@ simpleHandler fReq fRes = do a   <- asks auth
                              res <- query req
                              pure $ respondOk $ fRes res
 
+requestBody :: (FromJSON b) => Handler auth b
+requestBody = do req <- asks request
+                 b   <- liftIO $ W.requestBody req
+                 throwIfNothing (decodeStrict b) (ApplicationError 400 "Could not decode request body")
 
 capture :: (FromByteString r) => B.ByteString -> Handler auth r
 capture key = asks capts >>= \cs ->
          let v = fromMaybe err (lookup key cs)
          in pure $ fromMaybe err (fromByteString v) where
-    err = throw $ ApplicationError $ "Couldn't read capture: " <> decodeUtf8 key
+    err = throw $ ApplicationError 400 ("Couldn't read capture: " <> decodeUtf8 key)
 
 query :: PD.Request r -> Handler auth r
 query req = asks conn >>= \b ->

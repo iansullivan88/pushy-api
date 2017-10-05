@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 module Pushy.Web.Types where
 
@@ -9,13 +10,20 @@ import Data.Aeson.TH
 import Data.Char
 import qualified Data.Text as T
 
-data TeamResponse = TeamResponse { teamName :: T.Text
-                                 , teamDisplayName :: T.Text }
-$(deriveJSON (jsonOptions 4) ''TeamResponse)
+-- ** Requests
+
+data ArtifactRequest = ArtifactRequest { artifactTypeName :: T.Text }
+$(deriveJSON (jsonOptions 0) ''ArtifactRequest)
+
+-- ** Responses
+
+data TeamResponse = TeamResponse { name :: T.Text
+                                 , displayName :: T.Text }
+$(deriveJSON (jsonOptions 0) ''TeamResponse)
 
 
-data ArtifactTypeResponse = ArtifactTypeResponse { artifactTypeName :: T.Text }
-$(deriveJSON (jsonOptions 12) ''ArtifactTypeResponse)
+data ArtifactTypeResponse = ArtifactTypeResponse { name :: T.Text }
+$(deriveJSON (jsonOptions 0) ''ArtifactTypeResponse)
 
 data ErrorResponse = ErrorResponse { errorMessage :: T.Text }
 $(deriveJSON defaultOptions ''ErrorResponse)

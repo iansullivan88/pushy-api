@@ -32,31 +32,37 @@ TeamUser
     teamId TeamId
     userId UserId
     UniqueTeamUser teamId userId
+    deriving Show
 
 Environment
     name T.Text maxlen=30
     teamId TeamId
     UniqueEnvironmentName teamId name
+    deriving Show
 
 ArtifactType
     name T.Text maxlen=30
     teamId TeamId
     UniqueArtifactTypeName teamId name
+    deriving Show
 
 Artifact
     name T.Text maxlen=100
     artifactTypeId ArtifactTypeId
     UniqueTypeArtifactName artifactTypeId name
+    deriving Show
 
 Release
     name T.Text maxlen=30
     teamId TeamId
     UniqueReleaseName teamId name
+    deriving Show
     
 ReleaseArtifact
     releaseId ReleaseId
     artifactId ArtifactId
     UniqueReleaseArtifact releaseId artifactId
+    deriving Show
 
 ReleaseEnvironment
     releaseId ReleaseId
@@ -66,9 +72,11 @@ ReleaseEnvironment
     deploymentStartTime UTCTime Maybe default=NULL
     deploymentEndTime UTCTime Maybe default=NULL
     UniqueReleaseEnvironment releaseId environmentId
+    deriving Show
 
 Worker
     accessCode B.ByteString
     teamId TeamId
     UniqueAccessCode accessCode
+    deriving Show
 |]

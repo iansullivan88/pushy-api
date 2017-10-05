@@ -5,7 +5,7 @@ import Database.Persist.MySQL
 import qualified Data.Text as T
 
 data PushyException = UserVisibleError Int T.Text 
-                    | ApplicationError T.Text deriving(Show)
+                    | ApplicationError Int T.Text deriving(Show)
 
 instance Exception PushyException
 

@@ -46,7 +46,9 @@ executeRequest (GetTeamsForUser (Entity uId _)) = do
     tu <- selectList [TeamUserUserId ==. uId] []
     let teamIds = fmap (teamUserTeamId  . entityVal)  tu
     selectList [TeamId <-. teamIds] []
+executeRequest (GetArtifactType (Entity tId _) n) = getBy (UniqueArtifactTypeName tId n)
 executeRequest (GetArtifactTypes (Entity tId _)) = selectList [ArtifactTypeTeamId ==. tId] []
 executeRequest (AddArtifactType (Entity tId _) n) = insert_ $ ArtifactType n tId
+executeRequest (AddArtifact (Entity atId _) n) = insert_ $ Artifact n atId
 
 loggerName = "Pushy.Database"
